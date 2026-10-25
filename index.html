@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>うさぎ＆ねこ サバイバル60</title>
+<style>
+*{
+box-sizing:border-box;
+-webkit-tap-highlight-color:transparent;
+}
+
+html,body{
+margin:0;
+width:100%;
+height:100%;
+overflow:hidden;
+touch-action:none;
+font-family:sans-serif;
+background:#1a1a2e;
+color:#fff;
+}
+
+.screen{
+position:absolute;
+inset:0;
+display:flex;
+flex-direction:column;
+justify-content:center;
+align-items:center;
+padding:20px;
+text-align:center;
+}
+
+.hidden{
+display:none;
+}
+
+h1{
+margin:10px 0;
+font-size:clamp(28px,7vw,46px);
+}
+
+button{
+border:none;
+border-radius:16px;
+padding:16px 28px;
+font-size:20px;
+font-weight:bold;
+background:#ffcc00;
+color:#000;
+min-width:180px;
+}
+
+#gameScreen{
+padding:0;
+justify-content:flex-start;
+}
+
+#hud{
+width:100%;
+display:flex;
+justify-content:space-between;
+padding:10px;
+background:#0008;
+font-size:18px;
+font-weight:bold;
+}
+
+canvas{
+display:block;
+width:100%;
+height:calc(100vh - 170px);
+background:linear-gradient(#6ec6ff,#b8f7ff);
+}
+
+#controls{
+height:110px;
+width:100%;
+display:flex;
+justify-content:center;
+align-items:center;
+background:#1f2937;
+}
+
+.pad{
+display:grid;
+grid-template-columns:70px 70px 70px;
+grid-template-rows:50px 50px;
+gap:6px;
+}
+
+.ctrl{
+font-size:28px;
+border-radius:12px;
+background:#ffffff;
+}
+
+#rank{
+font-size:28px;
+font-weight:bold;
+color:#ffd700;
+}
+</style>
+</head>
+<body>
+
+<div id="startScreen" class="screen">
+<h1>🐰🐱 むずかしいサバイバル60</h1>
+
+<p>
+うさぎとねこを操作して60秒生き残ろう！<br>
+難易度：むずかしい<br>
+⬅️⬆️⬇️➡️で移動。<br>
+🥕を取ると5秒間無敵！<br>
+💀障害物に当たるとゲームオーバー！
+</p>
+
+<button id="startBtn">スタート</button>
+</div>
+
+<div id="gameScreen" class="screen hidden">
+
+<div id="hud">
+<div>スコア: <span id="score">0</span></div>
+<div>残り: <span id="time">60</span>秒</div>
+</div>
+
+<canvas id="game"></canvas>
+
+<div id="controls">
+<div class="pad">
+<div></div>
+<button class="ctrl" data-dir="up">⬆️</button>
+<div></div>
+
+<button class="ctrl" data-dir="left">⬅️</button>
+<button class="ctrl" data-dir="down">⬇️</button>
+<button class="ctrl" data-dir="right">➡️</button>
+</div>
+</div>
+
+</div>
+
+<div id="resultScreen" class="screen hidden">
+<h1>結果発表</h1>
+
+<p>最終スコア</p>
+
+<div style="font-size:48px;font-weight:bold" id="finalScore">0</div>
+
+<p id="rank">C</p>
+
+<button id="retryBtn">もう一度遊ぶ</button>
+</div>
+
+<script>
+const canvas=document.getElementById("game");
+const ctx=canvas.getContext("2d");
+
+function resize(){
+canvas.width=window.innerWidth;
+canvas.height=window.innerHeight-170;
+}
+resize();
+addEventListener("resize",resize);
+
+const startScreen=document.getElementById("startScreen");
+const gameScreen=document.getElementById("gameScreen");
+const resultScreen=document.getElementById("resultScreen");
+
+const scoreEl=document.getElementById("score");
+const timeEl=document.getElementById("time");
+const finalScoreEl=document.getElementById("finalScore");
+const rankEl=document.getElementById("rank");
+
+let player;
+let obstacles;
+let carrots;
+let score;
+let timeLeft;
+let gameOver;
+let invincible;
+let keys={};
+let spawnTimer;
+let lastTime;
+let countdown;
+
+function init(){
+
+player={
+x:120,
+y:120,
+size:22,
+speed:4.5
+};
+
+obstacles=[];
+carrots=[];
+
+score=0;
+timeLeft=60;
+gameOver=false;
+invincible=0;
+spawnTimer=0;
+
+scoreEl.textContent=0;
+timeEl.textContent=60;
+
+lastTime=performance.now();
+
+requestAnimationFrame(loop);
+
+countdown=setInterval(()=>{
+if(gameOver)return;
+
+timeLeft--;
+timeEl.textContent=timeLeft;
+
+if(timeLeft<=0){
+finish();
+}
+},1000);
+
+}
+
+function spawnObstacle(){
+
+const side=Math.floor(Math.random()*4);
+
+let x,y,vx,vy;
+
+const speed=2+Math.random()*3+(60-timeLeft)*0.06;
+
+if(side===0){
+x=Math.random()*canvas.width;
+y=-30;
+vx=(Math.random()-0.5)*3;
+vy=speed;
+}
+else if(side===1){
+x=canvas.width+30;
+y=Math.random()*canvas.height;
+vx=-speed;
+vy=(Math.random()-0.5)*3;
+}
+else if(side===2){
+x=Math.random()*canvas.width;
+y=canvas.height+30;
+vx=(Math.random()-0.5)*3;
+vy=-speed;
+}
+else{
+x=-30;
+y=Math.random()*canvas.height;
+vx=speed;
+vy=(Math.random()-0.5)*3;
+}
+
+obstacles.push({
+x,
+y,
+vx,
+vy,
+size:16+Math.random()*18
+});
+
+}
+
+function spawnCarrot(){
+
+carrots.push({
+x:40+Math.random()*(canvas.width-80),
+y:40+Math.random()*(canvas.height-80),
+size:18
+});
+
+}
+
+function loop(t){
+
+if(gameOver)return;
+
+const dt=(t-lastTime)/16.67;
+lastTime=t;
+
+update(dt);
+draw();
+
+requestAnimationFrame(loop);
+
+}
+
+function update(dt){
+
+if(keys.left) player.x-=player.speed*dt;
+if(keys.right) player.x+=player.speed*dt;
+if(keys.up) player.y-=player.speed*dt;
+if(keys.down) player.y+=player.speed*dt;
+
+player.x=Math.max(player.size,Math.min(canvas.width-player.size,player.x));
+player.y=Math.max(player.size,Math.min(canvas.height-player.size,player.y));
+
+spawnTimer+=dt;
+
+if(spawnTimer>10){
+
+spawnTimer=0;
+
+for(let i=0;i<1+Math.floor((60-timeLeft)/15);i++){
+spawnObstacle();
+}
+
+if(Math.random()<0.25 && carrots.length===0){
+spawnCarrot();
+}
+
+}
+
+for(let o of obstacles){
+o.x+=o.vx*dt;
+o.y+=o.vy*dt;
+}
+
+obstacles=obstacles.filter(o=>
+o.x>-80 &&
+o.x<canvas.width+80 &&
+o.y>-80 &&
+o.y<canvas.height+80
+);
+
+for(let c of carrots){
+
+const d=Math.hypot(player.x-c.x,player.y-c.y);
+
+if(d<player.size+c.size){
+invincible=300;
+score+=200;
+}
+
+}
+
+carrots=carrots.filter(c=>{
+const d=Math.hypot(player.x-c.x,player.y-c.y);
+return d>=player.size+c.size;
+});
+
+if(invincible>0){
+invincible--;
+}
+
+for(let o of obstacles){
+
+const d=Math.hypot(player.x-o.x,player.y-o.y);
+
+if(d<player.size+o.size){
+
+if(invincible<=0){
+finish();
+return;
+}
+
+}
+
+}
+
+score++;
+scoreEl.textContent=score;
+
+}
+
+function draw(){
+
+ctx.clearRect(0,0,canvas.width,canvas.height);
+
+for(let c of carrots){
+ctx.font="28px serif";
+ctx.fillText("🥕",c.x-14,c.y+10);
+}
+
+for(let o of obstacles){
+
+ctx.beginPath();
+ctx.fillStyle="#111";
+ctx.arc(o.x,o.y,o.size,0,Math.PI*2);
+ctx.fill();
+
+ctx.fillStyle="#f00";
+ctx.fillText("💀",o.x-12,o.y+8);
+
+}
+
+ctx.font="40px serif";
+
+if(invincible>0){
+ctx.shadowColor="yellow";
+ctx.shadowBlur=20;
+}
+else{
+ctx.shadowBlur=0;
+}
+
+ctx.fillText("🐰",player.x-22,player.y+15);
+ctx.fillText("🐱",player.x+5,player.y+15);
+
+ctx.shadowBlur=0;
+
+if(invincible>0){
+
+ctx.fillStyle="gold";
+ctx.font="20px sans-serif";
+ctx.fillText("無敵!",player.x-20,player.y-30);
+
+}
+
+}
+
+function finish(){
+
+if(gameOver)return;
+
+gameOver=true;
+
+clearInterval(countdown);
+
+gameScreen.classList.add("hidden");
+resultScreen.classList.remove("hidden");
+
+finalScoreEl.textContent=score;
+
+let rank="C";
+
+if(score>2000) rank="B";
+if(score>4000) rank="A";
+if(score>6000) rank="S";
+if(score>8000) rank="SS";
+
+rankEl.textContent="ランク : "+rank;
+
+}
+
+function startGame(){
+
+startScreen.classList.add("hidden");
+resultScreen.classList.add("hidden");
+gameScreen.classList.remove("hidden");
+
+clearInterval(countdown);
+
+init();
+
+}
+
+document.getElementById("startBtn").onclick=startGame;
+document.getElementById("retryBtn").onclick=startGame;
+
+function setDir(dir,val){
+keys[dir]=val;
+}
+
+document.querySelectorAll(".ctrl").forEach(btn=>{
+
+const dir=btn.dataset.dir;
+
+btn.addEventListener("pointerdown",e=>{
+e.preventDefault();
+setDir(dir,true);
+});
+
+["pointerup","pointercancel","pointerleave"].forEach(type=>{
+btn.addEventListener(type,e=>{
+e.preventDefault();
+setDir(dir,false);
+});
+});
+
+});
+
+addEventListener("keydown",e=>{
+if(e.key==="ArrowLeft") keys.left=true;
+if(e.key==="ArrowRight") keys.right=true;
+if(e.key==="ArrowUp") keys.up=true;
+if(e.key==="ArrowDown") keys.down=true;
+});
+
+addEventListener("keyup",e=>{
+if(e.key==="ArrowLeft") keys.left=false;
+if(e.key==="ArrowRight") keys.right=false;
+if(e.key==="ArrowUp") keys.up=false;
+if(e.key==="ArrowDown") keys.down=false;
+});
+</script>
+
+</body>
+</html>
